@@ -60,16 +60,19 @@ class DMSJobCreator:
             if tags:
                 params['Tags'] = tags
 
-            print(f"Creating event subscription with params: {params}")
+            print("\n=== Creating Event Subscription ===")
+            print(json.dumps(params, indent=2))
             response = self.dms_client.create_event_subscription(**params)
             return response
 
         except ClientError as e:
-            print(f"Error creating event subscription: {e}")
+            print("\n❌ Error creating event subscription:")
+            print(json.dumps(str(e), indent=2))
             raise
 
     def wait_for_instance_available(self, instance_arn: str, timeout: int = 900) -> bool:
         start_time = time.time()
+        print("\n=== Waiting for Instance to Become Available ===")
         while (time.time() - start_time) < timeout:
             try:
                 response = self.dms_client.describe_replication_instances(
@@ -79,16 +82,20 @@ class DMSJobCreator:
                 if response['ReplicationInstances']:
                     status = response['ReplicationInstances'][0]['ReplicationInstanceStatus']
                     if status == 'available':
+                        print(f"✅ Instance is now available")
                         return True
                     elif status == 'failed':
+                        print(f"❌ Instance creation failed with status: {status}")
                         raise Exception(f"Instance creation failed with status: {status}")
-                    print(f"Current status: {status}")
-                    print(f"Elapsed Time: {round(time.time() - start_time)} sec")
+                    
+                    elapsed = round(time.time() - start_time)
+                    print(f"Status: {status} | Elapsed Time: {elapsed} seconds")
                 
                 time.sleep(30)
                 
             except ClientError as e:
-                print(f"Error checking instance status: {e}")
+                print("\n❌ Error checking instance status:")
+                print(json.dumps(str(e), indent=2))
                 raise
         
         raise TimeoutError(f"Instance did not become available within {timeout} seconds")
@@ -142,7 +149,8 @@ class DMSJobCreator:
             if tags:
                 params['Tags'] = tags
             
-            print(f"Creating replication instance with params: {params}")
+            print("\n=== Creating Replication Instance ===")
+            print(json.dumps(params, indent=2))
             response = self.dms_client.create_replication_instance(**params)
             instance_arn = response['ReplicationInstance']['ReplicationInstanceArn']
             
@@ -150,10 +158,11 @@ class DMSJobCreator:
             if not self.wait_for_instance_available(instance_arn):
                 raise Exception("Timeout waiting for replication instance to become available")
             
-            return instance_arn
+            return response
             
         except ClientError as e:
-            print(f"Error creating replication instance: {e}")
+            print("\n❌ Error creating replication instance:")
+            print(json.dumps(str(e), indent=2))
             raise
         
     def create_replication_task(self,
@@ -184,13 +193,13 @@ class DMSJobCreator:
             if tags:
                 params['Tags'] = tags
             
-            print(f"Creating replication task with params: {params}")
+            print("\n=== Creating Replication Task ===")
+            print(json.dumps(params, indent=2))
             response = self.dms_client.create_replication_task(**params)
             
             task_arn = response['ReplicationTask']['ReplicationTaskArn']
             
-            # Wait for task creation to complete
-            print(f"Waiting for task to be ready: {replication_task_identifier}")
+            print(f"\n=== Waiting for Task to be Ready: {replication_task_identifier} ===")
             waiter = self.dms_client.get_waiter('replication_task_ready')
             waiter.wait(
                 Filters=[{
@@ -201,7 +210,8 @@ class DMSJobCreator:
             return response
 
         except (ClientError, WaiterError) as e:
-            print(f"Error creating DMS replication task: {e}")
+            print("\n❌ Error creating DMS replication task:")
+            print(json.dumps(str(e), indent=2))
             raise
 
 def parse_arguments():
@@ -269,7 +279,8 @@ def main():
         tags = json.loads(args.tags) if args.tags else None
         vpc_security_groups = json.loads(args.vpc_security_groups) if args.vpc_security_groups else None
     except json.JSONDecodeError as e:
-        print(f"Error parsing JSON input: {e}")
+        print("\n❌ Error parsing JSON input:")
+        print(json.dumps(str(e), indent=2))
         raise
     
     # Create DMS job
@@ -291,8 +302,10 @@ def main():
                 'engine_version': args.engine_version,
                 'tags': tags
             }
-            instance_arn = dms_creator.create_replication_instance(**instance_params)
-            print(f"Successfully created replication instance: {instance_arn}")
+            instance_response = dms_creator.create_replication_instance(**instance_params)
+            instance_arn = instance_response['ReplicationInstance']['ReplicationInstanceArn']
+            print("\n✅ Successfully created replication instance:")
+            print(json.dumps(instance_arn, indent=2))
 
         # Create the replication task
         task_response = dms_creator.create_replication_task(
@@ -304,23 +317,29 @@ def main():
             task_settings=task_settings,
             tags=tags
         )
-        print(f"Successfully created DMS replication task: {task_response}")
+        print("\n✅ Successfully created DMS replication task:")
+        print(json.dumps(task_response, indent=2))
         
         # Start the replication task
+        print("\n=== Starting Replication Task ===")
         start_response = dms_creator.dms_client.start_replication_task(
             ReplicationTaskArn=task_response['ReplicationTask']['ReplicationTaskArn'],
             StartReplicationTaskType='start-replication'
         )
-        print(f"Successfully started replication task: {start_response}")
+        print("\n✅ Successfully started replication task:")
+        print(json.dumps(start_response, indent=2))
         
         # Create the event subscription
         subscription_response = dms_creator.create_event_subscription(
             subscription_name=f"{task_identifier}-subscription",
             source_ids=[task_identifier]
         )
-        print(f"Successfully created : {start_response}")
+        print("\n✅ Successfully created event subscription:")
+        print(json.dumps(subscription_response, indent=2))
+        
     except Exception as e:
-        print(f"Failed to create DMS replication task: {e}")
+        print("\n❌ Failed to create DMS replication task:")
+        print(json.dumps(str(e), indent=2))
         raise
 
 if __name__ == "__main__":
