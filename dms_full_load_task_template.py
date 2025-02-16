@@ -6,6 +6,30 @@ from typing import Dict, Any, Optional, Tuple
 from botocore.exceptions import ClientError, WaiterError
 from datetime import datetime
 
+class DateTimeEncoder(json.JSONEncoder):
+    """Custom JSON encoder for datetime objects"""
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
+
+def safe_json_dumps(obj: Any, indent: int = 2) -> str:
+    """
+    Safely convert object to JSON string, handling datetime objects
+    
+    Args:
+        obj: Object to convert to JSON
+        indent: Indentation level for pretty printing
+    
+    Returns:
+        str: JSON string representation of the object
+    """
+    try:
+        return json.dumps(obj, indent=indent, cls=DateTimeEncoder)
+    except TypeError as e:
+        # If complex object cannot be serialized, convert to string
+        return json.dumps(str(obj), indent=indent)
+
 class DMSJobCreator:
     def __init__(self, region_name: str):
         """
@@ -61,13 +85,13 @@ class DMSJobCreator:
                 params['Tags'] = tags
 
             print("\n=== Creating Event Subscription ===")
-            print(json.dumps(params, indent=2))
+            print(safe_json_dumps(params, indent=2))
             response = self.dms_client.create_event_subscription(**params)
             return response
 
         except ClientError as e:
             print("\n❌ Error creating event subscription:")
-            print(json.dumps(str(e), indent=2))
+            print(safe_json_dumps(str(e), indent=2))
             raise
 
     def wait_for_instance_available(self, instance_arn: str, timeout: int = 900) -> bool:
@@ -95,7 +119,7 @@ class DMSJobCreator:
                 
             except ClientError as e:
                 print("\n❌ Error checking instance status:")
-                print(json.dumps(str(e), indent=2))
+                print(safe_json_dumps(str(e), indent=2))
                 raise
         
         raise TimeoutError(f"Instance did not become available within {timeout} seconds")
@@ -150,7 +174,7 @@ class DMSJobCreator:
                 params['Tags'] = tags
             
             print("\n=== Creating Replication Instance ===")
-            print(json.dumps(params, indent=2))
+            print(safe_json_dumps(params, indent=2))
             response = self.dms_client.create_replication_instance(**params)
             instance_arn = response['ReplicationInstance']['ReplicationInstanceArn']
             
@@ -162,7 +186,7 @@ class DMSJobCreator:
             
         except ClientError as e:
             print("\n❌ Error creating replication instance:")
-            print(json.dumps(str(e), indent=2))
+            print(safe_json_dumps(str(e), indent=2))
             raise
         
     def create_replication_task(self,
@@ -184,17 +208,17 @@ class DMSJobCreator:
                 'TargetEndpointArn': target_endpoint_arn,
                 'ReplicationInstanceArn': replication_instance_arn,
                 'MigrationType': 'full-load',
-                'TableMappings': json.dumps(table_mappings)
+                'TableMappings': table_mappings
             }
             
             if task_settings:
-                params['ReplicationTaskSettings'] = json.dumps(task_settings)
+                params['ReplicationTaskSettings'] = task_settings
 
             if tags:
                 params['Tags'] = tags
             
             print("\n=== Creating Replication Task ===")
-            print(json.dumps(params, indent=2))
+            print(safe_json_dumps(params, indent=2))
             response = self.dms_client.create_replication_task(**params)
             
             task_arn = response['ReplicationTask']['ReplicationTaskArn']
@@ -211,7 +235,7 @@ class DMSJobCreator:
 
         except (ClientError, WaiterError) as e:
             print("\n❌ Error creating DMS replication task:")
-            print(json.dumps(str(e), indent=2))
+            print(safe_json_dumps(str(e), indent=2))
             raise
 
 def parse_arguments():
@@ -280,7 +304,7 @@ def main():
         vpc_security_groups = json.loads(args.vpc_security_groups) if args.vpc_security_groups else None
     except json.JSONDecodeError as e:
         print("\n❌ Error parsing JSON input:")
-        print(json.dumps(str(e), indent=2))
+        print(safe_json_dumps(str(e), indent=2))
         raise
     
     # Create DMS job
@@ -305,7 +329,7 @@ def main():
             instance_response = dms_creator.create_replication_instance(**instance_params)
             instance_arn = instance_response['ReplicationInstance']['ReplicationInstanceArn']
             print("\n✅ Successfully created replication instance:")
-            print(json.dumps(instance_arn, indent=2))
+            print(safe_json_dumps(instance_arn, indent=2))
 
         # Create the replication task
         task_response = dms_creator.create_replication_task(
@@ -318,7 +342,7 @@ def main():
             tags=tags
         )
         print("\n✅ Successfully created DMS replication task:")
-        print(json.dumps(task_response, indent=2))
+        print(safe_json_dumps(task_response, indent=2))
         
         # Start the replication task
         print("\n=== Starting Replication Task ===")
@@ -327,7 +351,7 @@ def main():
             StartReplicationTaskType='start-replication'
         )
         print("\n✅ Successfully started replication task:")
-        print(json.dumps(start_response, indent=2))
+        print(safe_json_dumps(start_response, indent=2))
         
         # Create the event subscription
         subscription_response = dms_creator.create_event_subscription(
@@ -335,11 +359,11 @@ def main():
             source_ids=[task_identifier]
         )
         print("\n✅ Successfully created event subscription:")
-        print(json.dumps(subscription_response, indent=2))
+        print(safe_json_dumps(subscription_response, indent=2))
         
     except Exception as e:
-        print("\n❌ Failed to create DMS replication task:")
-        print(json.dumps(str(e), indent=2))
+        print("\n❌ Something went wrong. Exiting.")
+        print(safe_json_dumps(str(e), indent=2))
         raise
 
 if __name__ == "__main__":
