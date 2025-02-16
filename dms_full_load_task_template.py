@@ -208,11 +208,11 @@ class DMSJobCreator:
                 'TargetEndpointArn': target_endpoint_arn,
                 'ReplicationInstanceArn': replication_instance_arn,
                 'MigrationType': 'full-load',
-                'TableMappings': table_mappings
+                'TableMappings': json.dumps(table_mappings)
             }
             
             if task_settings:
-                params['ReplicationTaskSettings'] = task_settings
+                params['ReplicationTaskSettings'] = json.dumps(task_settings)
 
             if tags:
                 params['Tags'] = tags
